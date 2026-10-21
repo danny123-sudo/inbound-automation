@@ -9,4 +9,5 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest
-      - run: python -m pytest -q      - run: node n8n/check_code_node.js
+      - run: python -m pytest -q
+      - run: node n8n/check_code_node.js
