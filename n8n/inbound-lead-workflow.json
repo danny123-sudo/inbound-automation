@@ -1,0 +1,103 @@
+{
+  "name": "Inbound lead: validate, score, route, alert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inbound-lead",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "responseCode": 202,
+        "options": {}
+      },
+      "name": "Form webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Same rules as inbound.py, kept deliberately small.\nconst lead = $json.body || {};\nconst email = String(lead.email || '').trim().toLowerCase();\nconst valid = /^[^@\\s]+@[^@\\s]+\\.[a-z]{2,}$/i.test(email) && !!lead.form_id;\nconst domain = email.split('@')[1] || '';\nconst free = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com', 'proton.me'].includes(domain);\nconst formPoints = { demo_request: 45, pricing: 25, contact: 15, newsletter: 0 }[lead.form_id] ?? 5;\nconst sizePoints = { '1000+': 30, '200-999': 20, '50-199': 10 }[lead.company_size] ?? 0;\nconst senior = /\\b(ceo|cro|chief|founder|vp|vice president|head|director)\\b/i.test(lead.title || '');\nconst score = !valid || free ? 0 : Math.min(100, formPoints + sizePoints + (senior ? 15 : 0));\nconst owner = score >= 70 ? 'ae_queue' : score >= 40 ? 'sdr_queue' : 'nurture';\nreturn { json: { email, domain, form_id: lead.form_id, title: lead.title || '', company: lead.company || '', company_size: lead.company_size || '', valid, free_email: free, score, owner } };"
+      },
+      "name": "Validate and score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.valid }}", "value2": true }]
+        }
+      },
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CRM_UPSERT_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $env.CRM_API_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $json.email, company: $json.company, title: $json.title, lead_score: $json.score, owner: $json.owner, lead_source: 'web_form:' + $json.form_id }) }}",
+        "options": {}
+      },
+      "name": "Upsert to CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [{ "value1": "={{ $('Validate and score').item.json.score }}", "operation": "largerEqual", "value2": 70 }]
+        }
+      },
+      "name": "Hot lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [960, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: ':fire: Hot lead ' + $('Validate and score').item.json.email + ' (' + ($('Validate and score').item.json.company || $('Validate and score').item.json.domain) + '), score ' + $('Validate and score').item.json.score }) }}",
+        "options": {}
+      },
+      "name": "Alert Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 100]
+    },
+    {
+      "parameters": {},
+      "name": "Drop invalid",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [720, 420]
+    }
+  ],
+  "connections": {
+    "Form webhook": { "main": [[{ "node": "Validate and score", "type": "main", "index": 0 }]] },
+    "Validate and score": { "main": [[{ "node": "Valid?", "type": "main", "index": 0 }]] },
+    "Valid?": {
+      "main": [
+        [{ "node": "Upsert to CRM", "type": "main", "index": 0 }],
+        [{ "node": "Drop invalid", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert to CRM": { "main": [[{ "node": "Hot lead?", "type": "main", "index": 0 }]] },
+    "Hot lead?": { "main": [[{ "node": "Alert Slack", "type": "main", "index": 0 }], []] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

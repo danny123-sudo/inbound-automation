@@ -1,0 +1,7 @@
+{
+  "contoso.example":   {"company": "Contoso",           "employees": 2400, "industry": "Software",      "country": "US"},
+  "fabrikam.example":  {"company": "Fabrikam",          "employees": 650,  "industry": "Manufacturing", "country": "DE"},
+  "northwind.example": {"company": "Northwind Traders", "employees": 120,  "industry": "Retail",        "country": "US"},
+  "wingtip.example":   {"company": "Wingtip Analytics", "employees": 310,  "industry": "Software",      "country": "GB"},
+  "proseware.example": {"company": "Proseware",         "employees": 45,   "industry": "Fintech",       "country": "US"}
+}
